@@ -23,6 +23,7 @@
 #include "InitSystem.h"
 #include "display.h"
 #include "motor_asc.h"
+#include "clock.h"
 
 
 /******************************************************************************/
@@ -83,7 +84,7 @@ static unsigned char LeerEntrada(void);
 static void GenerarSalida(unsigned char Salida);
 
 Timer_id Ti ;
-
+unsigned int time_now;
 
 
 /******************************************************************************/
@@ -106,10 +107,11 @@ estado = INICIAL;
 while (1)
 {
 
-    P2OUT ^= BIT4; // estopaq
+    time_now = Get_Time();
+    P2OUT ^= BIT4; // p2.4 cambia cada ciclo
     Entrada = LeerEntrada();
 
-    switch (estado) // TODO: añadir 7segmentos y salida en el automata son los led??
+    switch (estado) // TODO: a�adir 7segmentos y salida en el automata son los led??
     {
     case INICIAL:
         Salida = Led_EMG | Led_PB | Led_P1 | Led_P2; // q hace led_EMG y que hace salida
@@ -120,74 +122,98 @@ while (1)
     // cuando llego a cada piso el estado se actualiza auto?
     case P0:
         Salida = Led_PB;
+        Orden_Ascensor = PARAR;
         // si B1 o B2 pulsados
-        if (Entrada & B_P1)
+        if (Entrada & B_P1) {
             Orden_Ascensor = SUBIR;
             estado = P0_S_P1;
+        }
 
-        if (Entrada & B_P2)
+        if (Entrada & B_P2) {
             Orden_Ascensor = SUBIR;
             estado = P0_S_P2;
+        }
 
         break;
 
     case P1:
         Salida = Led_P1;
+        Orden_Ascensor = PARAR;
 
-        if (Entrada & B_PB)
+        if (Entrada & B_PB) {
             Orden_Ascensor = BAJAR;
             estado = P1_B_P0;
+        }
 
-        if (Entrada & B_P2)
+
+        if (Entrada & B_P2) {
             Orden_Ascensor = SUBIR;
             estado = P1_S_P2;
+        }
+
 
         break;
     case P2:
         Salida = Led_P2;
-        //Ti = Set_Timer(5000, ONE_SHOT, 0); // TODO: q pasa si quiero poner uno y ya esta puesto?
-        if (Entrada & B_PB)
+        Orden_Ascensor = PARAR;
+        Ti = Set_Timer(5000, ONE_SHOT, 0);
+        if (Entrada & B_PB) {
+            Remove_Timer(Ti);
             Orden_Ascensor = BAJAR;
             estado = P2_B_P0;
+        }
 
-        if (Entrada & B_P1)
+        if (Entrada & B_P1) {
+            Remove_Timer(Ti);
             Orden_Ascensor = BAJAR;
             estado = P2_B_P1;
+        }
+
+        if(Time_Out(Ti) ) {
+            // Si pasan los 5 seg bajo
+            Remove_Timer(Ti);
+            if (estado == P2) {
+                estado = P2_B_P0;
+            }
+        }
+
         break;
 
     case P0_S_P2:
         Orden_Ascensor = SUBIR;
         Salida = Led_PB;
-        if (FC1)
+        if (Entrada & FC1) {
             estado = P1_S_P2;
+        }
+
         break;
 
     case P0_S_P1: // caundo llego aqui led piso
         Orden_Ascensor = SUBIR;
-        Salida = Led_P1;
-        if (FC1) // TODO: habria que poner aqui el actualizar el led??
+        Salida = Led_PB;
+        if (Entrada & FC1) // TODO: habria que poner aqui el actualizar el led??
             estado = P1;
         break;
 
     case P1_S_P2: // caundo llego aqui led piso 1
         Orden_Ascensor = SUBIR;
-        Salida = Led_PB;
+        Salida = Led_P1;
 
-        if (FC2)
+        if (Entrada & FC2)
             estado = P2;
         break;
 
     case P2_B_P0:
         Orden_Ascensor = BAJAR;
         Salida = Led_P2;
-        if (FC1)
+        if (Entrada & FC1)
             estado = P1_B_P0;
         break;
 
     case P2_B_P1: // caundo llego aqui led piso
         Orden_Ascensor = BAJAR;
         Salida = Led_P2;
-        if (FC1)
+        if (Entrada & FC1)
             estado = P1;
         break;
 
@@ -195,24 +221,24 @@ while (1)
         Orden_Ascensor = BAJAR;
         Salida = Led_P1;
 
-        if (FC2)
-            estado = P2;
+        if (Entrada & FCB)
+            estado = P0;
         break;
 
     }
-    /*if(Time_Out(Ti) ) { // TODO: poner en otro lao?
-        // Si pasan los 5 seg bajo
-        Remove_Timer(Ti);
-        if (estado == P2) {
-            estado = P2_B_P0;
-        }
 
-    }*/
 
     GenerarSalida(Salida);  //generacion de salida
-    display(0, Salida); //muestra en el display 0 el piso en el que está
+    switch(Salida) {
+    case 1:
+        display(0,0); break;
+    case 2:
+        display(0,1); break;
+    case 4:
+        display(0,2); break;
+    }
     Orden_motor_asc(Orden_Ascensor);
-
+    delay_until(time_now + 20);
 
 }
 }
@@ -273,5 +299,4 @@ static void GenerarSalida(unsigned char Salida)
   if (Salida & Led_EMG) P4OUT |= BIT4 ;
   else P4OUT &= ~BIT4 ;
 }
-
 
